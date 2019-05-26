@@ -1,6 +1,7 @@
 source('/Users/Gerald/Personal Drive/IE MBD/Term III/Advanced R/load_libraries.R')
 source('/Users/Gerald/Personal Drive/IE MBD/Term III/Advanced R/f_partition.R')
 source('/Users/Gerald/Personal Drive/IE MBD/Term III/Advanced R/Session 4/classification_metrics.R')
+source("/Users/Gerald/Personal Drive/IE MBD/Term III/Advanced R/regression_metrics.R")
 library(GGally)
 library(MLmetrics)
 # Import data
@@ -9,6 +10,18 @@ house_test <- fread("https://gist.githubusercontent.com/geraldwal/58f48ae5a44f70
 
 head(house_train)
 head(house_test)
+
+#VISUALIZATIONS
+plot_ly(y=~price,x=~bedrooms,data = house_train,
+        hoverinfo = "text",text= ~paste("Price",price,"\n","Bedrooms:",bedrooms,"\n","Grade",
+                                        grade ,"\n","Condition",condition,"\n","Year Built :",yr_built))%>%
+  add_markers()%>%
+  layout(title="Price with No of Bedrooms")
+
+par(mfrow=c(1, 2))  # divide graph area in 2 columns
+boxplot(house_train$price, main="Price", sub=paste("Outlier rows: ", boxplot.stats(house_train$price)$out))  # box plot for 'price'
+# --> take log of price
+boxplot(house_train$lat, main="lat", sub=paste("Outlier rows: ", boxplot.stats(house_train$lat)$out))  # box plot for 'lat'
 
 # Stack train and test into one dataset
 house_test$split <- "test"
@@ -48,7 +61,7 @@ hdTest <- hd[which(hd$split == "test"),]
 
 # Correlation matrix
 library("PerformanceAnalytics")
-my_data <- hdTrain[, c(3,4,5,6,7)]
+my_data <- hdTrain[, c(3:21)]
 chart.Correlation(my_data, histogram=TRUE, pch=19)
 
 # EDA on train dataset
@@ -59,7 +72,6 @@ unique(house_data$long)
 unique(house_data$long)
 unique(house_data$long)
 unique(house_data$long)
-
 
 plot(table(house_train$price))
 summary(house_train)
@@ -72,17 +84,51 @@ plot1
 # e.g. BED,FLOOR,WATERFRONT,VIEW
 # sqft basement into 0 or 1
 
+library(MASS)
+#The better the fit, the lower the AIC, the more complex the model, the higher the AIC
+#The lower the better: -4 is better than -2
 
+library(caret)
+
+
+#Baseline lm
+lmodfit<-lm(price~.,data=trainNumeric)
+summary(lmodfit)
+
+test_lm<-predict(lmodfit, newdata = trainNumeric)
+
+mape<-mape(real=trainNumeric$price, predicted = test_lm)
+mape
+
+#Stepwise lm
+Blmodfit<-step(lmodfit,steps = 10000,trace = F) #Step is used to  select best model by #Minimizing AIC value
+summary(Blmodfit)
+
+test_lm<-predict(Blmodfit, newdata = trainNumeric)
+
+mape_baseline<-mape(real=trainNumeric$price, predicted = test_lm)
+mape_baseline
+
+#Stepwise lm
+Blmodfit<-step(lmodfit,steps = 10000,trace = F) #Step is used to  select best model by #Minimizing AIC value
+summary(Blmodfit)
+
+test_lm<-predict(Blmodfit, newdata = trainNumeric)
+
+mape<-mape(real=trainNumeric$price, predicted = test_lm)
+mape
 
 #### 1.1 Base R Partitioning Tree 
 library(rpart)
 library(partykit)
 library(rpart.plot)
-tree_0<-rpart(formula = formula, data = house_train$split, method = 'anova', model=TRUE)
+tree_0<-rpart(formula = formula, data = hdTrain, method = 'anova', model=TRUE)
 
 print(as.party(tree_0))
 
-rpart.plot(tree_0, digits = 4,type = 2,box.palette = 'Gn')
+rpart.plot(tree_0, digits = 4,type = 5,box.palette = 'Gn') # lat and sqft_living seem most important variables
+
+
 
 trainNumeric <- hdTrain[,c(2:21, 24:26)]
 testNumeric <- hdTest[,c(2:21, 24:26)]
