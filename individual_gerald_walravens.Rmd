@@ -1,0 +1,183 @@
+---
+title: "ML Analysis House Price dataset"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## GitHub Documents
+
+This is an R Markdown format used for publishing markdown documents to GitHub.
+
+## Including Code
+
+You can include R code in the document as follows:
+
+```{r libraries}
+source('/Users/Gerald/Personal Drive/IE MBD/Term III/Advanced R/load_libraries.R')
+source('/Users/Gerald/Personal Drive/IE MBD/Term III/Advanced R/f_partition.R')
+source('/Users/Gerald/Personal Drive/IE MBD/Term III/Advanced R/Session 4/classification_metrics.R')
+source("/Users/Gerald/Personal Drive/IE MBD/Term III/Advanced R/regression_metrics.R")
+if(!"randomForest" %in% installed.packages()) {
+  install.packages("randomForest")}
+if(!"GGally" %in% installed.packages()) {
+  install.packages("GGally")}
+if(!"MLmetrics" %in% installed.packages()) {
+  install.packages("MLmetrics")}
+library(randomForest)
+library(GGally)
+library(MLmetrics)
+```
+
+```{r data, echo=FALSE}
+house_train <- fread("https://gist.githubusercontent.com/geraldwal/c15f40a258a15f6417e70705d57e9a21/raw/800519c3f4d633b8985cf9fc4b60ebccc89494eb/house_price_train")
+house_test <- fread("https://gist.githubusercontent.com/geraldwal/58f48ae5a44f7061ced0c3486e2f07aa/raw/5a77070d797ffa9598c0eb6f37facb6a2a20c78b/house_price_test")
+
+head(house_train)
+head(house_test)
+```
+```{r EDA, echo=FALSE}
+table(hd$floors)
+unique(house_data$bedrooms)
+unique(house_data$zipcode)
+plot(table(house_train$bedrooms))
+plot(table(house_train$sqft_basement))
+unique(house_data$long)
+
+hd %>% ggplot(aes(yr_built))+geom_histogram(binwidth=5,fill=rainbow(1),alpha=0.5)+
+                scale_x_continuous(limits=c(1900,2016))
+
+par(mfrow=c(1, 4))  # divide graph area in 2 columns
+
+#box plot for 'price'
+boxplot(hdTrain$price, main="Price", sub=paste("Outlier rows: ", boxplot.stats(hdTrain$price)$out))
+# --> take log of price
+
+# box plot for 'lat'
+boxplot(hdTrain$lat, main="lat", sub=paste("Outlier rows: ", boxplot.stats(hdTrain$lat)$out))
+
+# box plot for 'bedrooms'
+boxplot(hdTrain$bedrooms, main="bedrooms", sub=paste("Outlier rows: ", boxplot.stats(hdTrain$bedrooms)$out))
+
+# box plot for 'bathrooms'
+boxplot(hdTrain$bathrooms, main="bathrooms", sub=paste("Outlier rows: ", boxplot.stats(hdTrain$bathrooms)$out)) 
+
+# Houses built over the years
+hd %>%
+group_by(yr_built) %>%
+summarise(n = n()) %>%
+ggplot(aes(x = yr_built, y = n)) +
+geom_line(color = 'black') +
+geom_point(color = 'blue', size = 0.5) +
+geom_smooth(method="lm", color = 'red', size = 0.5) +
+theme_linedraw() +
+theme(plot.title = element_text(hjust = 0, face = 'bold',color = 'green'),
+      plot.subtitle = element_text(face = "italic")) +
+labs(x = 'Year', y = 'Total', title = "House Sales in King County, USA",
+     subtitle = "Houses built in 1900 - 2015") +
+scale_x_continuous(breaks=seq(1900, 2015, 10))
+
+#summarizing interactive plot
+plot_ly(y=~price,x=~bedrooms,data = hdTrain,
+        hoverinfo = "text",text= ~paste("Price: ",price,"\n","Bathrooms:",bathrooms,"\n","Grade: ",
+                                        grade ,"\n","Condition: ",condition,"\n","Year Built:",yr_built))%>%
+  add_markers()%>%
+  layout(title="Price vs Bedrooms")
+
+library(corrplot,quietly = T)
+set.seed(990)
+Nindex<-sapply(hd,is.numeric)
+Ndata<-hd[,..Nindex]
+corrplot(cor(Ndata))
+```
+
+```{r prep, echo=FALSE}
+# Stack train and test into one dataset
+house_test$split <- "test"
+house_test$price <- 0
+house_train$split <- "train"
+
+house_data <- rbind(house_train, house_test)
+str(house_data)
+
+# Copy to continue working on
+hd <- house_data
+
+#Only keep unique rows
+sum(duplicated(hd$id))
+hd <- hd[!duplicated(hd$id), ]
+str(hd)
+
+#factorize
+hd[, "floors"] <- sapply(hd[, "floors"], as.factor)
+hd[, "bedrooms"] <- sapply(hd[, "bedrooms"], as.factor)
+hd[, "waterfront"] <- sapply(hd[, "waterfront"], as.factor)
+hd[, "view"] <- sapply(hd[, "view"], as.factor)
+
+#binarize sqft_basement
+hd[,"sqft_basement"] <- ifelse(hd[,"sqft_basement"] > 0,1,0)
+
+# Split data table again
+hdTrain <- hd[which(hd$split == "train"),]
+hdTest <- hd[which(hd$split == "test"),]
+
+#date transformations and variable extractions
+#hd <- cbind(hd, hd$date) #copy of date column
+#hd$date <- mdy(hd$date)
+#hd$date <-as.numeric(as.Date(hd$date, origin = "1900-01-01"))
+#colnames(hd)[colnames(hd)=="V2"] <- "copy_date"
+#hd$copy_date <- as.Date(hd$copy_date, format = '%m/%d/%Y')
+
+#hd$month <- month(hd$copy_date)
+#hd$day <- day(hd$copy_date)
+#hd$year <- year(hd$copy_date)
+
+#unique(hd$year) # check years
+#str(hd)
+```
+```{r trainsplit, echo=FALSE}
+set.seed(1996)
+spliting <- sample(1:3, size = nrow(hdTrain), prob = c(0.7, 0.15, 0.15), replace = TRUE)
+```
+
+```{r Baseline, echo=FALSE}
+formula = price~.
+
+fitControl <- trainControl(method="cv",number = 10)
+
+# Train, validation and testset to score and evaluate models
+train0 <- hdTrain[spliting == 1, 3:21]
+val0 <- hdTrain[spliting == 2, 3:21]
+test0 <- hdTrain[spliting == 3, 3:21]
+
+#Baseline lm
+lm_1<-train(formula,data = train0, method = 'lm', trControl = fitControl, metric = 'MAE')
+summary(lm_1)
+
+pred_lm_1<-predict(lm_1, newdata = test0)
+
+mape_lm_1<-mape(real=test0$price, predicted = pred_lm_1)
+mape_lm_1
+
+#Baseline rf
+rf_1<-train(formula,data = train0, method = 'rf', trControl = fitControl, metric = 'MAE')
+summary(rf_1)
+
+pred_lm_1<-predict(lm_1, newdata = test0)
+
+mape_lm_1<-mape(real=test0$price, predicted = pred_lm_1)
+mape_lm_1
+
+rf_1<-randomForest(price~.,data=trainNumeric, ntree = 100)
+summary(rf_1)
+
+pred_rf_1<-predict(rf_1, newdata = trainNumeric)
+
+mape_rf_1<-mape(real=trainNumeric$price, predicted = pred_rf_1)
+mape_rf_1
+#Baseline xgb
+
+
+```
