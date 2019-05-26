@@ -1,100 +1,43 @@
 ---
-title: "ML Analysis House Price dataset"
-output: github_document
+title: "House Price Analysis"
+author: "Gerald Walravens"
+output:
+  prettydoc::html_pretty:
+    theme: cayman
+    highlight: github
+    df_printed: paged
+date: "`r format(Sys.time(), '%d-%B-%Y')`"
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, comment = NA, warning = F, message = F)
+options(repos=c(CRAN="https://cran.rediris.es/"))
 ```
 
-## GitHub Documents
+## 1. Loading libraries
 
-This is an R Markdown format used for publishing markdown documents to GitHub.
-
-## Including Code
-
-You can include R code in the document as follows:
+To see which packages are used, please inspect the load_libraries and regression_metrics files.
 
 ```{r libraries}
-source('/Users/Gerald/Personal Drive/IE MBD/Term III/Advanced R/load_libraries.R')
-source('/Users/Gerald/Personal Drive/IE MBD/Term III/Advanced R/f_partition.R')
-source('/Users/Gerald/Personal Drive/IE MBD/Term III/Advanced R/Session 4/classification_metrics.R')
-source("/Users/Gerald/Personal Drive/IE MBD/Term III/Advanced R/regression_metrics.R")
-if(!"randomForest" %in% installed.packages()) {
-  install.packages("randomForest")}
-if(!"GGally" %in% installed.packages()) {
-  install.packages("GGally")}
-if(!"MLmetrics" %in% installed.packages()) {
-  install.packages("MLmetrics")}
-library(randomForest)
-library(GGally)
-library(MLmetrics)
+source('load_libraries.R')
+source("regression_metrics.R")
 ```
 
-```{r data, echo=FALSE}
+## 2. Loading + organising data
+
+Via gist paths, the datasets are loaded in data.table format.
+
+```{r data}
 house_train <- fread("https://gist.githubusercontent.com/geraldwal/c15f40a258a15f6417e70705d57e9a21/raw/800519c3f4d633b8985cf9fc4b60ebccc89494eb/house_price_train")
 house_test <- fread("https://gist.githubusercontent.com/geraldwal/58f48ae5a44f7061ced0c3486e2f07aa/raw/5a77070d797ffa9598c0eb6f37facb6a2a20c78b/house_price_test")
 
 head(house_train)
 head(house_test)
 ```
-```{r EDA, echo=FALSE}
-table(hd$floors)
-unique(house_data$bedrooms)
-unique(house_data$zipcode)
-plot(table(house_train$bedrooms))
-plot(table(house_train$sqft_basement))
-unique(house_data$long)
 
-hd %>% ggplot(aes(yr_built))+geom_histogram(binwidth=5,fill=rainbow(1),alpha=0.5)+
-                scale_x_continuous(limits=c(1900,2016))
+In this chunk, a split column is added in order to easily split and stack the datasets when needed.
 
-par(mfrow=c(1, 4))  # divide graph area in 2 columns
-
-#box plot for 'price'
-boxplot(hdTrain$price, main="Price", sub=paste("Outlier rows: ", boxplot.stats(hdTrain$price)$out))
-# --> take log of price
-
-# box plot for 'lat'
-boxplot(hdTrain$lat, main="lat", sub=paste("Outlier rows: ", boxplot.stats(hdTrain$lat)$out))
-
-# box plot for 'bedrooms'
-boxplot(hdTrain$bedrooms, main="bedrooms", sub=paste("Outlier rows: ", boxplot.stats(hdTrain$bedrooms)$out))
-
-# box plot for 'bathrooms'
-boxplot(hdTrain$bathrooms, main="bathrooms", sub=paste("Outlier rows: ", boxplot.stats(hdTrain$bathrooms)$out)) 
-
-# Houses built over the years
-hd %>%
-group_by(yr_built) %>%
-summarise(n = n()) %>%
-ggplot(aes(x = yr_built, y = n)) +
-geom_line(color = 'black') +
-geom_point(color = 'blue', size = 0.5) +
-geom_smooth(method="lm", color = 'red', size = 0.5) +
-theme_linedraw() +
-theme(plot.title = element_text(hjust = 0, face = 'bold',color = 'green'),
-      plot.subtitle = element_text(face = "italic")) +
-labs(x = 'Year', y = 'Total', title = "House Sales in King County, USA",
-     subtitle = "Houses built in 1900 - 2015") +
-scale_x_continuous(breaks=seq(1900, 2015, 10))
-
-#summarizing interactive plot
-plot_ly(y=~price,x=~bedrooms,data = hdTrain,
-        hoverinfo = "text",text= ~paste("Price: ",price,"\n","Bathrooms:",bathrooms,"\n","Grade: ",
-                                        grade ,"\n","Condition: ",condition,"\n","Year Built:",yr_built))%>%
-  add_markers()%>%
-  layout(title="Price vs Bedrooms")
-
-library(corrplot,quietly = T)
-set.seed(990)
-Nindex<-sapply(hd,is.numeric)
-Ndata<-hd[,..Nindex]
-corrplot(cor(Ndata))
-```
-
-```{r prep, echo=FALSE}
-# Stack train and test into one dataset
+```{r split_and_stack}
 house_test$split <- "test"
 house_test$price <- 0
 house_train$split <- "train"
@@ -104,45 +47,123 @@ str(house_data)
 
 # Copy to continue working on
 hd <- house_data
+```
 
-#Only keep unique rows
+Only keep unique rows.
+
+```{r EDA}
 sum(duplicated(hd$id))
 hd <- hd[!duplicated(hd$id), ]
-str(hd)
 
-#factorize
-hd[, "floors"] <- sapply(hd[, "floors"], as.factor)
-hd[, "bedrooms"] <- sapply(hd[, "bedrooms"], as.factor)
-hd[, "waterfront"] <- sapply(hd[, "waterfront"], as.factor)
-hd[, "view"] <- sapply(hd[, "view"], as.factor)
+hdTrain <- hd[which(hd$split == "train"),]
+hdTest <- hd[which(hd$split == "test"),]
+```
 
-#binarize sqft_basement
+## 3. EDA
+
+Analysis of the different variables, based on their individual distributions and relation according to the target variable price.
+
+```{r EDA1}
+table(hd$floors)
+unique(house_data$bedrooms)
+unique(house_data$zipcode)
+plot(table(house_train$bedrooms))
+plot(table(house_train$yr_renovated))
+plot(table(house_train$sqft_basement))
+unique(house_data$long)
+
+par(mfrow=c(1, 4))  # divide graph area in 4 columns
+
+# Box plot for 'price'
+boxplot(hdTrain$price, main="Price", sub=paste("Outlier rows: ", boxplot.stats(hdTrain$price)$out))
+
+# Box plot for 'lat'
+boxplot(hdTrain$lat, main="lat", sub=paste("Outlier rows: ", boxplot.stats(hdTrain$lat)$out))
+
+# Box plot for 'bedrooms'
+boxplot(hdTrain$bedrooms, main="bedrooms", sub=paste("Outlier rows: ", boxplot.stats(hdTrain$bedrooms)$out))
+
+# Box plot for 'bathrooms'
+boxplot(hdTrain$bathrooms, main="bathrooms", sub=paste("Outlier rows: ", boxplot.stats(hdTrain$bathrooms)$out)) 
+```
+
+### Advanced graphs
+
+Showing the evolution of amount of houses over the years
+
+```{r EDA2}
+hd %>%
+group_by(yr_built) %>%
+summarise(n = n()) %>%
+ggplot(aes(x = yr_built, y = n)) +
+geom_line(color = 'black') +
+geom_point(color = 'blue', size = 0.5) +
+geom_smooth(method="lm", color = 'green', size = 0.5) +
+theme_linedraw() +
+theme(plot.title = element_text(hjust = 0,color = 'black')) +
+labs(x = 'year', y = 'count',
+     title = "House sales in 1900 - 2015") +
+scale_x_continuous(breaks=seq(1900, 2015, 10))
+```
+
+Interactive graph summarizing several variables related to price
+
+```{r EDA3}
+plot_ly(y=~price,x=~bedrooms,data = hdTrain,
+        hoverinfo = "text",text= ~paste("Price: ",price,"\n","Bathrooms:",bathrooms,"\n","Grade: ",
+                                        grade ,"\n","Condition: ",condition,"\n","Year Built:",yr_built))%>%
+  add_markers()%>%
+  layout(title="Price vs Bedrooms")
+```
+
+Correlation plot
+
+```{r EDA4}
+library(corrplot,quietly = T)
+set.seed(990)
+Nindex<-sapply(hd,is.numeric)
+Ndata<-hd[,..Nindex]
+corrplot(cor(Ndata))
+```
+
+## 4. Data preparation
+
+### a. Factorizing
+Floors, bathrooms, waterfront and view consist of clear categories. That is why their numeric datatype is changed in to the factorial one.
+
+### b. Binarizing
+sqft_basement and yr_renovated showed a clear distribution in the EDA, with most of the values being 0. With an ifelse condition all other variables are therefore changed into 1.
+
+```{r prep}
+# Factorization
+hd$floors <- sapply(hd$floors, as.factor)
+hd$bathrooms <- sapply(hd$bathrooms, as.factor)
+hd$waterfront <- sapply(hd$waterfront, as.factor)
+hd$view <- sapply(hd$view, as.factor)
+
+# Binarizing sqft_basement and yr_renovated
 hd[,"sqft_basement"] <- ifelse(hd[,"sqft_basement"] > 0,1,0)
+hd[,"yr_renovated"] <- ifelse(hd[,"yr_renovated"] > 0,1,0)
 
 # Split data table again
 hdTrain <- hd[which(hd$split == "train"),]
-hdTest <- hd[which(hd$split == "test"),]
-
-#date transformations and variable extractions
-#hd <- cbind(hd, hd$date) #copy of date column
-#hd$date <- mdy(hd$date)
-#hd$date <-as.numeric(as.Date(hd$date, origin = "1900-01-01"))
-#colnames(hd)[colnames(hd)=="V2"] <- "copy_date"
-#hd$copy_date <- as.Date(hd$copy_date, format = '%m/%d/%Y')
-
-#hd$month <- month(hd$copy_date)
-#hd$day <- day(hd$copy_date)
-#hd$year <- year(hd$copy_date)
-
-#unique(hd$year) # check years
-#str(hd)
+hdTest <- hd[which(hd$split == "test"),] # do not touch anymore
 ```
-```{r trainsplit, echo=FALSE}
+
+## 5. Modelling
+
+*Linear regression*, *random forest* and *gradient boosting* are the models chosen to predict the house prices. There will be three iterations, with in between a Feature Engineering step, aiming to increase the score. In the last modeling phase, the parameters of the two latter models are also tuned.
+
+### Splitting function
+
+```{r trainsplit}
 set.seed(1996)
 spliting <- sample(1:3, size = nrow(hdTrain), prob = c(0.7, 0.15, 0.15), replace = TRUE)
 ```
 
-```{r Baseline, echo=FALSE}
+### a. Baseline
+
+```{r Baseline}
 formula = price~.
 
 fitControl <- trainControl(method="cv",number = 10)
@@ -153,31 +174,168 @@ val0 <- hdTrain[spliting == 2, 3:21]
 test0 <- hdTrain[spliting == 3, 3:21]
 
 #Baseline lm
-lm_1<-train(formula,data = train0, method = 'lm', trControl = fitControl, metric = 'MAE')
-summary(lm_1)
+lm_0<-train(formula,data = train0, method = 'lm', trControl = fitControl, metric = 'MAE')
+summary(lm_0)
 
-pred_lm_1<-predict(lm_1, newdata = test0)
+pred_lm_0<-predict(lm_0, newdata = test0)
 
-mape_lm_1<-mape(real=test0$price, predicted = pred_lm_1)
-mape_lm_1
+mape_lm_0<-mape(real=test0$price, predicted = pred_lm_0)
+mape_lm_0
 
 #Baseline rf
-rf_1<-train(formula,data = train0, method = 'rf', trControl = fitControl, metric = 'MAE')
-summary(rf_1)
+rf_0<-randomForest(formula, data = train0, ntree = 100)
+summary(rf_0)
+varImpPlot(rf_0,type=2)
 
-pred_lm_1<-predict(lm_1, newdata = test0)
+pred_rf_0<-predict(rf_0, newdata = test0)
 
-mape_lm_1<-mape(real=test0$price, predicted = pred_lm_1)
+mape_rf_0<-mape(real=test0$price, predicted = pred_rf_0)
+mape_rf_0
+
+#Plotting the actual and predicted
+ggplot(test0,aes(x=price,y=pred_rf_0))+geom_point()+geom_abline(color="blue")
+
+#Baseline GBM
+gb_0 <- gbm(formula,data = train0,n.trees = 100,cv.folds = 5)
+summary(gb_0)
+
+pred_gb_0<-predict(gb_0, newdata = test0)
+
+mape_gb_0<-mape(real=test0$price, predicted = pred_gb_0)
+mape_gb_0
+```
+
+Feature Engineering 1: extract date information and add it to the datatable
+
+```{r FE1}
+#date transformations and variable extractions
+hd <- cbind(hd, hd$date) #copy of date column
+hd$date <- mdy(hd$date)
+hd$date <-as.numeric(as.Date(hd$date, origin = "1900-01-01"))
+colnames(hd)[colnames(hd)=="V2"] <- "copy_date"
+hd$copy_date <- as.Date(hd$copy_date, format = '%m/%d/%Y')
+
+hd$month <- month(hd$copy_date)
+hd$day <- day(hd$copy_date)
+hd$year <- year(hd$copy_date)
+
+unique(hd$year) # check years
+str(hd)
+
+hdTrain <- hd[which(hd$split == "train"),]
+hdTest <- hd[which(hd$split == "test"),] # do not touch anymore
+```
+
+### b. Modeling phase 2
+
+```{r Model1}
+# Train, validation and testset to score and evaluate models
+train1 <- hdTrain[spliting == 1, c(3:21, 24:26)]
+val1 <- hdTrain[spliting == 2, c(3:21, 24:26)]
+test1 <- hdTrain[spliting == 3, c(3:21, 24:26)]
+
+#LM with FE1
+lm_1<-train(formula,data = train1, method = 'lm', trControl = fitControl, metric = 'MAE')
+summary(lm_1)
+
+pred_lm_1<-predict(lm_1, newdata = test1)
+
+mape_lm_1<-mape(real=test1$price, predicted = pred_lm_1)
 mape_lm_1
 
-rf_1<-randomForest(price~.,data=trainNumeric, ntree = 100)
+#RF with FE1
+rf_1<-randomForest(formula, data = train1, ntree = 100)
 summary(rf_1)
+varImpPlot(rf_1,type=2)
 
-pred_rf_1<-predict(rf_1, newdata = trainNumeric)
+pred_rf_1<-predict(rf_1, newdata = test1)
 
-mape_rf_1<-mape(real=trainNumeric$price, predicted = pred_rf_1)
+mape_rf_1<-mape(real=test1$price, predicted = pred_rf_1)
 mape_rf_1
-#Baseline xgb
 
+#Plotting the actual and predicted
+ggplot(test1,aes(x=price,y=pred_rf_1))+geom_point()+geom_abline(color="blue")
 
+#GBM with FE 1
+gb_1 <- gbm(formula,data = train1,n.trees = 100,cv.folds = 5)
+summary(gb_1)
+
+pred_gb_1<-predict(gb_1, newdata = test1)
+
+mape_gb_1<-mape(real=test1$price, predicted = pred_gb_1)
+mape_gb_1
+```
+
+Feature Engineering 2: delete as seen in the EDA, the outlier of 33 bedrooms with a relatively low price 
+
+```{r FE2}
+#Remove outlier
+plot(table(train1$bedrooms))
+train2 <- subset(train1, bedrooms < 12)
+
+hdTrain <- hd[which(hd$split == "train"),]
+hdTest <- hd[which(hd$split == "test"),] # do not touch anymore
+```
+
+### c. Modeling phase 3
+
+Experimenting with parameter tuning for RF and GBM
+
+```{r Models2}
+#LM with FE2
+lm_2<-train(formula,data = train2, method = 'lm', trControl = fitControl, metric = 'MAE')
+summary(lm_2)
+
+pred_lm_2<-predict(lm_2, newdata = test1)
+
+mape_lm_2<-mape(real=test1$price, predicted = pred_lm_2)
+mape_lm_2
+
+#RF with FE2 and parameter tuning
+rf_2<-randomForest(formula, data = train2, ntree = 200, mtry = 4, nodesize = 7)
+summary(rf_2)
+varImpPlot(rf_2,type=2)
+
+pred_rf_2<-predict(rf_2, newdata = test1)
+
+mape_rf_2<-mape(real=test1$price, predicted = pred_rf_2)
+mape_rf_2
+
+#Plotting the actual and predicted
+ggplot(test1,aes(x=price,y=pred_rf_2))+geom_point()+geom_abline(color="blue")
+
+#GBM with FE2 and parameter tuning
+gb_2 <- gbm(formula,data = train2,n.trees = 200, interaction.depth = 2, shrinkage = 0.08, cv.folds = 5)
+summary(gb_2)
+
+pred_gb_2<-predict(gb_2, newdata = test1)
+
+mape_gb_2<-mape(real=test1$price, predicted = pred_gb_2)
+mape_gb_2
+```
+
+Parameter tuning decreased the score of the gradient boosting model drastically, but the random forest score became worse.
+
+Extract best score
+
+```{r Best score}
+table <- c(mape_lm_0,mape_lm_1,mape_lm_2,
+           mape_rf_0, mape_rf_1, mape_rf_2,
+           mape_gb_0, mape_gb_1, mape_gb_2)
+
+best_score <- min(table)
+```
+
+### MAPE rf_0: 0.1309606
+The random forest MAPE of our baseline model is the best score
+
+## 6. Score Testset
+
+With the randomforest baseline model, the test set is scored and the prediction file saved.
+ 
+```{r Write}
+final_test<-predict(rf_0, newdata = hdTest)
+hdTest$price <- final_test
+Gerald_Walravens_Project <- hdTest[, c(1, 3)]
+write.csv(Gerald_Walravens_Project, "Gerald_Walravens_Project.csv")
 ```
